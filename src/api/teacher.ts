@@ -1,5 +1,28 @@
 import { Env, JWTPayload } from '../types';
 
+// 获取教师的所有课程班级列表
+export async function getTeacherClasses(env: Env, user: JWTPayload) {
+  const query = `
+    SELECT DISTINCT 
+      s.class_id,
+      s.course_id,
+      s.semester_id,
+      c.name as course_name,
+      cl.grade,
+      cl.class_number
+    FROM schedules s
+    JOIN teachers t ON s.teacher_id = t.id
+    JOIN courses c ON s.course_id = c.id
+    JOIN classes cl ON s.class_id = cl.id
+    WHERE t.user_id = ?
+    AND s.semester_id = (SELECT id FROM semesters WHERE is_current = 1)
+    ORDER BY cl.grade, cl.class_number, c.name
+  `;
+  
+  const result = await env.DB.prepare(query).bind(user.userId).all();
+  return result.results;
+}
+
 // 获取教师的课表
 export async function getTeacherSchedule(env: Env, user: JWTPayload, semesterId?: number) {
   const query = `

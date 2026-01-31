@@ -512,3 +512,60 @@ export async function getAllClassrooms(env: Env) {
   `).all();
   return result.results;
 }
+
+// 创建课程
+export async function createCourse(env: Env, name: string, code: string, credits: number, hasMidtermExam: boolean) {
+  // 检查课程代码是否已存在
+  const existing = await env.DB.prepare(`
+    SELECT id FROM courses WHERE code = ?
+  `).bind(code).first();
+  
+  if (existing) {
+    throw new Error('Course code already exists');
+  }
+  
+  const result = await env.DB.prepare(`
+    INSERT INTO courses (name, code, credits, has_midterm_exam)
+    VALUES (?, ?, ?, ?)
+  `).bind(name, code, credits, hasMidtermExam ? 1 : 0).run();
+  
+  return { success: true, courseId: result.meta.last_row_id };
+}
+
+// 创建教室
+export async function createClassroom(env: Env, roomNumber: string, building: string, capacity: number, type: string) {
+  // 检查教室编号是否已存在
+  const existing = await env.DB.prepare(`
+    SELECT id FROM classrooms WHERE room_number = ?
+  `).bind(roomNumber).first();
+  
+  if (existing) {
+    throw new Error('Classroom number already exists');
+  }
+  
+  const result = await env.DB.prepare(`
+    INSERT INTO classrooms (room_number, building, capacity, type)
+    VALUES (?, ?, ?, ?)
+  `).bind(roomNumber, building, capacity, type).run();
+  
+  return { success: true, classroomId: result.meta.last_row_id };
+}
+
+// 创建班级
+export async function createClass(env: Env, grade: number, classNumber: number, headTeacherId?: number) {
+  // 检查班级是否已存在
+  const existing = await env.DB.prepare(`
+    SELECT id FROM classes WHERE grade = ? AND class_number = ?
+  `).bind(grade, classNumber).first();
+  
+  if (existing) {
+    throw new Error('Class already exists');
+  }
+  
+  const result = await env.DB.prepare(`
+    INSERT INTO classes (grade, class_number, head_teacher_id)
+    VALUES (?, ?, ?)
+  `).bind(grade, classNumber, headTeacherId || null).run();
+  
+  return { success: true, classId: result.meta.last_row_id };
+}
