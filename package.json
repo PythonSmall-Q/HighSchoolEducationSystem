@@ -1,0 +1,25 @@
+{
+  "name": "high-school-education-system",
+  "version": "1.0.0",
+  "description": "基于 Cloudflare Workers 和 D1 的高中教育管理系统",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute education-db --file=./schema.sql --local",
+    "db:migrate": "wrangler d1 execute education-db --file=./schema.sql"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "education",
+    "management"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20231218.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.22.1"
+  }
+}
