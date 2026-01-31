@@ -83,12 +83,19 @@ export async function getStudentRanking(env: Env, user: JWTPayload, semesterId: 
   const studentRank = rankings.findIndex((r: any) => r.id === studentInfo.student_id) + 1;
   const totalStudents = rankings.length;
   const percentile = ((totalStudents - studentRank) / totalStudents * 100).toFixed(2);
+  const avgScore = rankings.find((r: any) => r.id === studentInfo.student_id)?.avg_score || 0;
+  
+  // 检查是否需要补考：总分<60且年级后5%
+  const isBottom5Percent = parseFloat(percentile) <= 5;
+  const requiresMakeup = avgScore < 60 && isBottom5Percent;
   
   return {
     rank: studentRank,
     totalStudents,
     percentile: parseFloat(percentile),
-    avgScore: rankings.find((r: any) => r.id === studentInfo.student_id)?.avg_score || 0
+    avgScore,
+    requiresMakeup,
+    isBottom5Percent
   };
 }
 
@@ -184,7 +191,14 @@ export async function getCoursesForEvaluation(env: Env, user: JWTPayload, semest
       t.id as teacher_id,
       u.name as teacher_name,
       CASE 
-        WHEN e.id IS NOT NULL THEN 1 
+        WHEN EXISTS(
+          SELECT 1 FROM evaluations e2 
+          WHERE e2.student_id = st.id 
+          AND e2.teacher_id = t.id 
+          AND e2.course_id = c.id 
+          AND e2.semester_id = s.semester_id
+          LIMIT 1
+        ) THEN 1 
         ELSE 0 
       END as is_evaluated
     FROM schedules s
@@ -192,13 +206,9 @@ export async function getCoursesForEvaluation(env: Env, user: JWTPayload, semest
     JOIN teachers t ON s.teacher_id = t.id
     JOIN users u ON t.user_id = u.id
     JOIN students st ON s.class_id = st.class_id
-    LEFT JOIN evaluations e ON 
-      e.student_id = st.id AND 
-      e.teacher_id = t.id AND 
-      e.course_id = c.id AND 
-      e.semester_id = s.semester_id
     WHERE st.user_id = ?
     AND s.semester_id = ?
+    ORDER BY c.name, u.name
   `;
   
   const result = await env.DB.prepare(query).bind(user.userId, semesterId).all();

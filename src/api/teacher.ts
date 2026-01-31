@@ -79,12 +79,27 @@ export async function uploadGrades(env: Env, user: JWTPayload, data: any) {
     throw new Error('Unauthorized: You do not teach this course');
   }
   
+  // 获取课程信息，检查是否有期中考试
+  const course = await env.DB.prepare(`
+    SELECT has_midterm_exam FROM courses WHERE id = ?
+  `).bind(courseId).first();
+  
+  const hasMidterm = course?.has_midterm_exam === 1;
+  
   // 批量插入或更新成绩
   for (const grade of grades) {
     const { studentId, regularScore, midtermScore, finalScore } = grade;
     
-    // 计算总分（可根据实际权重调整）
-    const totalScore = (regularScore * 0.3) + (midtermScore * 0.3) + (finalScore * 0.4);
+    // 计算总分（根据是否有期中考试调整权重）
+    let totalScore;
+    if (hasMidterm) {
+      // 有期中：平时30% + 期中30% + 期末40%
+      totalScore = (regularScore * 0.3) + (midtermScore * 0.3) + (finalScore * 0.4);
+    } else {
+      // 无期中：平时40% + 期末60%
+      totalScore = (regularScore * 0.4) + (finalScore * 0.6);
+    }
+    
     const needsMakeup = totalScore < 60;
     
     // 检查是否已存在记录
@@ -100,7 +115,7 @@ export async function uploadGrades(env: Env, user: JWTPayload, data: any) {
         SET regular_score = ?, midterm_score = ?, final_score = ?, 
             total_score = ?, needs_makeup = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-      `).bind(regularScore, midtermScore, finalScore, totalScore, needsMakeup ? 1 : 0, existing.id).run();
+      `).bind(regularScore, hasMidterm ? midtermScore : null, finalScore, totalScore, needsMakeup ? 1 : 0, existing.id).run();
     } else {
       // 插入
       await env.DB.prepare(`
@@ -108,7 +123,7 @@ export async function uploadGrades(env: Env, user: JWTPayload, data: any) {
                            regular_score, midterm_score, final_score, total_score, needs_makeup)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(studentId, courseId, semesterId, teacherId.id, 
-              regularScore, midtermScore, finalScore, totalScore, needsMakeup ? 1 : 0).run();
+              regularScore, hasMidterm ? midtermScore : null, finalScore, totalScore, needsMakeup ? 1 : 0).run();
     }
   }
   
@@ -257,4 +272,73 @@ export async function getTeacherRequests(env: Env, user: JWTPayload) {
     rescheduleRequests: rescheduleRequests.results,
     substituteRequests: substituteRequests.results
   };
+}
+
+// 获取需要补考的学生列表
+export async function getStudentsNeedingMakeup(env: Env, user: JWTPayload, courseId: number, semesterId: number) {
+  const teacherId = await env.DB.prepare(`
+    SELECT id FROM teachers WHERE user_id = ?
+  `).bind(user.userId).first();
+  
+  if (!teacherId) {
+    throw new Error('Teacher not found');
+  }
+  
+  const query = `
+    SELECT 
+      g.id as grade_id,
+      g.total_score,
+      g.needs_makeup,
+      g.makeup_approved,
+      g.makeup_score,
+      g.makeup_passed,
+      g.makeup_approved_final,
+      u.name as student_name,
+      st.student_number,
+      cl.name as class_name
+    FROM grades g
+    JOIN students st ON g.student_id = st.id
+    JOIN users u ON st.user_id = u.id
+    JOIN classes cl ON st.class_id = cl.id
+    WHERE g.course_id = ?
+    AND g.semester_id = ?
+    AND g.teacher_id = ?
+    AND g.needs_makeup = 1
+    ORDER BY cl.name, st.student_number
+  `;
+  
+  const result = await env.DB.prepare(query).bind(courseId, semesterId, teacherId.id).all();
+  return result.results;
+}
+
+// 上传补考成绩
+export async function uploadMakeupScores(env: Env, user: JWTPayload, data: any) {
+  const { gradeId, makeupScore, makeupPassed } = data;
+  
+  const teacherId = await env.DB.prepare(`
+    SELECT id FROM teachers WHERE user_id = ?
+  `).bind(user.userId).first();
+  
+  if (!teacherId) {
+    throw new Error('Teacher not found');
+  }
+  
+  // 验证该成绩记录属于该教师且已批准补考
+  const grade = await env.DB.prepare(`
+    SELECT id, makeup_approved FROM grades
+    WHERE id = ? AND teacher_id = ? AND makeup_approved = 1
+  `).bind(gradeId, teacherId.id).first();
+  
+  if (!grade) {
+    throw new Error('Unauthorized or makeup not approved');
+  }
+  
+  // 更新补考成绩
+  await env.DB.prepare(`
+    UPDATE grades
+    SET makeup_score = ?, makeup_passed = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).bind(makeupScore, makeupPassed ? 1 : 0, gradeId).run();
+  
+  return { success: true };
 }

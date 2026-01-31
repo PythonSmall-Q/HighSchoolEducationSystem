@@ -291,3 +291,224 @@ export async function createUser(env: Env, data: any) {
   
   return { success: true, userId };
 }
+
+// 获取待审批的补考申请
+export async function getPendingMakeupRequests(env: Env) {
+  const query = `
+    SELECT 
+      g.id as grade_id,
+      g.total_score,
+      g.needs_makeup,
+      g.makeup_approved,
+      u.name as student_name,
+      st.student_number,
+      st.grade,
+      cl.name as class_name,
+      c.name as course_name,
+      ut.name as teacher_name
+    FROM grades g
+    JOIN students st ON g.student_id = st.id
+    JOIN users u ON st.user_id = u.id
+    JOIN classes cl ON st.class_id = cl.id
+    JOIN courses c ON g.course_id = c.id
+    JOIN teachers t ON g.teacher_id = t.id
+    JOIN users ut ON t.user_id = ut.id
+    WHERE g.needs_makeup = 1 AND g.makeup_approved = 0
+    ORDER BY st.grade, cl.name, st.student_number
+  `;
+  
+  const result = await env.DB.prepare(query).all();
+  return result.results;
+}
+
+// 审批补考申请
+export async function approveMakeupRequest(env: Env, gradeId: number, approved: boolean) {
+  await env.DB.prepare(`
+    UPDATE grades
+    SET makeup_approved = ?
+    WHERE id = ?
+  `).bind(approved ? 1 : 0, gradeId).run();
+  
+  return { success: true };
+}
+
+// 审批补考成绩
+export async function approveMakeupScore(env: Env, gradeId: number, approved: boolean) {
+  await env.DB.prepare(`
+    UPDATE grades
+    SET makeup_approved_final = ?
+    WHERE id = ?
+  `).bind(approved ? 1 : 0, gradeId).run();
+  
+  return { success: true };
+}
+
+// 获取待审批的补考成绩
+export async function getPendingMakeupScores(env: Env) {
+  const query = `
+    SELECT 
+      g.id as grade_id,
+      g.total_score,
+      g.makeup_score,
+      g.makeup_passed,
+      g.makeup_approved_final,
+      u.name as student_name,
+      st.student_number,
+      cl.name as class_name,
+      c.name as course_name,
+      ut.name as teacher_name
+    FROM grades g
+    JOIN students st ON g.student_id = st.id
+    JOIN users u ON st.user_id = u.id
+    JOIN classes cl ON st.class_id = cl.id
+    JOIN courses c ON g.course_id = c.id
+    JOIN teachers t ON g.teacher_id = t.id
+    JOIN users ut ON t.user_id = ut.id
+    WHERE g.makeup_approved = 1 
+    AND g.makeup_score IS NOT NULL 
+    AND g.makeup_approved_final = 0
+    ORDER BY cl.name, st.student_number
+  `;
+  
+  const result = await env.DB.prepare(query).all();
+  return result.results;
+}
+
+// 创建课表（排课）
+export async function createSchedule(env: Env, data: any) {
+  const { courseId, teacherId, classId, classroomId, semesterId, dayOfWeek, periodStart, periodEnd } = data;
+  
+  // 检查冲突
+  const conflict = await env.DB.prepare(`
+    SELECT id FROM schedules
+    WHERE classroom_id = ? AND semester_id = ? AND day_of_week = ?
+    AND ((period_start <= ? AND period_end > ?) OR (period_start < ? AND period_end >= ?))
+  `).bind(classroomId, semesterId, dayOfWeek, periodStart, periodStart, periodEnd, periodEnd).first();
+  
+  if (conflict) {
+    throw new Error('Schedule conflict: classroom is occupied');
+  }
+  
+  const result = await env.DB.prepare(`
+    INSERT INTO schedules (course_id, teacher_id, class_id, classroom_id, semester_id, day_of_week, period_start, period_end)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(courseId, teacherId, classId, classroomId, semesterId, dayOfWeek, periodStart, periodEnd).run();
+  
+  return { success: true, scheduleId: result.meta.last_row_id };
+}
+
+// 删除课表
+export async function deleteSchedule(env: Env, scheduleId: number) {
+  await env.DB.prepare(`DELETE FROM schedules WHERE id = ?`).bind(scheduleId).run();
+  return { success: true };
+}
+
+// 获取所有课表
+export async function getAllSchedules(env: Env, semesterId?: number) {
+  const query = `
+    SELECT 
+      s.*,
+      c.name as course_name,
+      c.code as course_code,
+      t.teacher_number,
+      u.name as teacher_name,
+      cl.name as class_name,
+      cr.room_number,
+      cr.building
+    FROM schedules s
+    JOIN courses c ON s.course_id = c.id
+    JOIN teachers t ON s.teacher_id = t.id
+    JOIN users u ON t.user_id = u.id
+    JOIN classes cl ON s.class_id = cl.id
+    JOIN classrooms cr ON s.classroom_id = cr.id
+    ${semesterId ? 'WHERE s.semester_id = ?' : ''}
+    ORDER BY s.day_of_week, s.period_start
+  `;
+  
+  const result = semesterId 
+    ? await env.DB.prepare(query).bind(semesterId).all()
+    : await env.DB.prepare(query).all();
+  
+  return result.results;
+}
+
+// 批量创建学生
+export async function batchCreateStudents(env: Env, students: any[]) {
+  const results = [];
+  
+  for (const student of students) {
+    const { username, password, name, email, studentNumber, classId, grade } = student;
+    
+    try {
+      // 哈希密码
+      const encoder = new TextEncoder();
+      const passwordData = encoder.encode(password);
+      const hash = await crypto.subtle.digest('SHA-256', passwordData);
+      const passwordHash = btoa(String.fromCharCode(...new Uint8Array(hash)));
+      
+      // 创建用户
+      const userResult = await env.DB.prepare(`
+        INSERT INTO users (username, password_hash, role, name, email)
+        VALUES (?, ?, 'student', ?, ?)
+      `).bind(username, passwordHash, name, email).run();
+      
+      const userId = userResult.meta.last_row_id;
+      
+      // 创建学生信息
+      await env.DB.prepare(`
+        INSERT INTO students (user_id, student_number, class_id, grade)
+        VALUES (?, ?, ?, ?)
+      `).bind(userId, studentNumber, classId, grade).run();
+      
+      results.push({ success: true, username, userId });
+    } catch (error: any) {
+      results.push({ success: false, username, error: error.message });
+    }
+  }
+  
+  return results;
+}
+
+// 更新课程设置（是否有期中考试）
+export async function updateCourseSettings(env: Env, courseId: number, hasMidtermExam: boolean) {
+  await env.DB.prepare(`
+    UPDATE courses SET has_midterm_exam = ? WHERE id = ?
+  `).bind(hasMidtermExam ? 1 : 0, courseId).run();
+  
+  return { success: true };
+}
+
+// 获取所有课程
+export async function getAllCourses(env: Env) {
+  const result = await env.DB.prepare(`
+    SELECT * FROM courses ORDER BY name
+  `).all();
+  return result.results;
+}
+
+// 获取所有教师
+export async function getAllTeachers(env: Env) {
+  const result = await env.DB.prepare(`
+    SELECT t.*, u.name, u.email
+    FROM teachers t
+    JOIN users u ON t.user_id = u.id
+    ORDER BY u.name
+  `).all();
+  return result.results;
+}
+
+// 获取所有班级
+export async function getAllClasses(env: Env) {
+  const result = await env.DB.prepare(`
+    SELECT * FROM classes ORDER BY grade, class_number
+  `).all();
+  return result.results;
+}
+
+// 获取所有教室
+export async function getAllClassrooms(env: Env) {
+  const result = await env.DB.prepare(`
+    SELECT * FROM classrooms ORDER BY building, room_number
+  `).all();
+  return result.results;
+}

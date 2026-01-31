@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS courses (
     code TEXT UNIQUE NOT NULL,
     department TEXT,
     credits INTEGER DEFAULT 0,
-    description TEXT
+    description TEXT,
+    has_midterm_exam BOOLEAN DEFAULT 1  -- 是否有期中考试
 );
 
 -- 教室表
@@ -103,6 +104,10 @@ CREATE TABLE IF NOT EXISTS grades (
     final_score REAL,
     total_score REAL,
     needs_makeup BOOLEAN DEFAULT 0,
+    makeup_approved BOOLEAN DEFAULT 0,  -- 补考是否已审批
+    makeup_score REAL,  -- 补考成绩
+    makeup_passed BOOLEAN DEFAULT 0,  -- 补考是否通过
+    makeup_approved_final BOOLEAN DEFAULT 0,  -- 补考成绩是否已最终审批
     teacher_id INTEGER NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -217,5 +222,11 @@ INSERT OR IGNORE INTO evaluation_questions (question_text, question_type, order_
 ('教师授课内容清晰易懂', 'rating', 1),
 ('教师能够调动课堂气氛', 'rating', 2),
 ('教师对学生认真负责', 'rating', 3),
-('教师布置的作业量合理', 'rating', 4),
-('您对该教师的其他意见和建议', 'text', 5);
+('教师备课充分，讲解透彻', 'rating', 4),
+('教师教学方法灵活多样', 'rating', 5),
+('教师能够关注学生个体差异', 'rating', 6),
+('教师布置的作业量合理', 'rating', 7),
+('教师批改作业及时认真', 'rating', 8),
+('教师能够及时解答学生疑问', 'rating', 9),
+('教师师德良好，为人师表', 'rating', 10),
+('您对该教师的其他意见和建议', 'text', 11);

@@ -83,3 +83,31 @@ export function hasRole(user: JWTPayload | null, ...roles: string[]): boolean {
   if (!user) return false;
   return roles.includes(user.role);
 }
+
+// 修改密码
+export async function changePassword(env: Env, userId: number, oldPassword: string, newPassword: string): Promise<boolean> {
+  // 获取用户当前密码哈希
+  const user = await env.DB.prepare(`
+    SELECT password_hash FROM users WHERE id = ?
+  `).bind(userId).first();
+  
+  if (!user) {
+    throw new Error('User not found');
+  }
+  
+  // 验证旧密码
+  const isValid = await verifyPassword(oldPassword, user.password_hash as string);
+  if (!isValid) {
+    throw new Error('Invalid old password');
+  }
+  
+  // 哈希新密码
+  const newPasswordHash = await hashPassword(newPassword);
+  
+  // 更新密码
+  await env.DB.prepare(`
+    UPDATE users SET password_hash = ? WHERE id = ?
+  `).bind(newPasswordHash, userId).run();
+  
+  return true;
+}

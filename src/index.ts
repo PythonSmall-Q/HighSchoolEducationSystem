@@ -1,5 +1,5 @@
 import { Env, JWTPayload } from './types';
-import { authenticateRequest, createJWT, verifyPassword, hasRole } from './auth';
+import { authenticateRequest, createJWT, verifyPassword, hasRole, changePassword } from './auth';
 import * as studentApi from './api/student';
 import * as teacherApi from './api/teacher';
 import * as adminApi from './api/admin';
@@ -149,6 +149,19 @@ export default {
         return jsonResponse(data, 200, corsHeaders);
       }
 
+      if (path === '/api/teacher/makeup-students' && hasRole(authUser, 'teacher')) {
+        const courseId = parseInt(url.searchParams.get('courseId') || '0');
+        const semesterId = parseInt(url.searchParams.get('semesterId') || '1');
+        const data = await teacherApi.getStudentsNeedingMakeup(env, authUser, courseId, semesterId);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/teacher/upload-makeup-scores' && request.method === 'POST' && hasRole(authUser, 'teacher')) {
+        const body = await request.json();
+        const data = await teacherApi.uploadMakeupScores(env, authUser, body);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
       // ========== 管理员端 API ==========
       if (path === '/api/admin/evaluation-questions' && hasRole(authUser, 'admin')) {
         if (request.method === 'GET') {
@@ -199,6 +212,83 @@ export default {
         const body = await request.json();
         const data = await adminApi.createUser(env, body);
         return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/pending-makeup-requests' && hasRole(authUser, 'admin')) {
+        const data = await adminApi.getPendingMakeupRequests(env);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/approve-makeup' && request.method === 'POST' && hasRole(authUser, 'admin')) {
+        const body = await request.json() as any;
+        const data = await adminApi.approveMakeupRequest(env, body.gradeId, body.approved);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/pending-makeup-scores' && hasRole(authUser, 'admin')) {
+        const data = await adminApi.getPendingMakeupScores(env);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/approve-makeup-score' && request.method === 'POST' && hasRole(authUser, 'admin')) {
+        const body = await request.json() as any;
+        const data = await adminApi.approveMakeupScore(env, body.gradeId, body.approved);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/schedules' && hasRole(authUser, 'admin')) {
+        if (request.method === 'GET') {
+          const semesterId = url.searchParams.get('semesterId');
+          const data = await adminApi.getAllSchedules(env, semesterId ? parseInt(semesterId) : undefined);
+          return jsonResponse(data, 200, corsHeaders);
+        } else if (request.method === 'POST') {
+          const body = await request.json();
+          const data = await adminApi.createSchedule(env, body);
+          return jsonResponse(data, 200, corsHeaders);
+        } else if (request.method === 'DELETE') {
+          const body = await request.json() as any;
+          const data = await adminApi.deleteSchedule(env, body.scheduleId);
+          return jsonResponse(data, 200, corsHeaders);
+        }
+      }
+
+      if (path === '/api/admin/courses' && hasRole(authUser, 'admin')) {
+        const data = await adminApi.getAllCourses(env);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/update-course' && request.method === 'POST' && hasRole(authUser, 'admin')) {
+        const body = await request.json() as any;
+        const data = await adminApi.updateCourseSettings(env, body.courseId, body.hasMidtermExam);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/teachers' && hasRole(authUser, 'admin')) {
+        const data = await adminApi.getAllTeachers(env);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/classes' && hasRole(authUser, 'admin')) {
+        const data = await adminApi.getAllClasses(env);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/classrooms' && hasRole(authUser, 'admin')) {
+        const data = await adminApi.getAllClassrooms(env);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      if (path === '/api/admin/batch-create-students' && request.method === 'POST' && hasRole(authUser, 'admin')) {
+        const body = await request.json() as any;
+        const data = await adminApi.batchCreateStudents(env, body.students);
+        return jsonResponse(data, 200, corsHeaders);
+      }
+
+      // 修改密码（所有用户）
+      if (path === '/api/change-password' && request.method === 'POST') {
+        const body = await request.json() as any;
+        const data = await changePassword(env, authUser.userId, body.oldPassword, body.newPassword);
+        return jsonResponse({ success: data }, 200, corsHeaders);
       }
 
       // 静态文件服务（前端页面）
