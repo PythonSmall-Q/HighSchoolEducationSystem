@@ -83,10 +83,11 @@ export async function getStudentRanking(env: Env, user: JWTPayload, semesterId: 
   const studentRank = rankings.findIndex((r: any) => r.id === studentInfo.student_id) + 1;
   const totalStudents = rankings.length;
   const percentile = ((totalStudents - studentRank) / totalStudents * 100).toFixed(2);
-  const avgScore = rankings.find((r: any) => r.id === studentInfo.student_id)?.avg_score || 0;
+  const avgScore = Number(rankings.find((r: any) => r.id === studentInfo.student_id)?.avg_score || 0);
   
   // 检查是否需要补考：总分<60且年级后5%
-  const isBottom5Percent = parseFloat(percentile) <= 5;
+  const percentileNum = Number(percentile);
+  const isBottom5Percent = percentileNum <= 5;
   const requiresMakeup = avgScore < 60 && isBottom5Percent;
   
   return {
@@ -162,14 +163,18 @@ export async function submitEvaluation(env: Env, user: JWTPayload, data: any) {
   }
   
   // 插入评教结果
-  const studentId = await env.DB.prepare(`SELECT id FROM students WHERE user_id = ?`).bind(user.userId).first();
+  const studentIdRecord = await env.DB.prepare(`SELECT id FROM students WHERE user_id = ?`).bind(user.userId).first();
   
+  if (!studentIdRecord) {
+    throw new Error('Student not found');
+  }
+
   for (const answer of answers) {
     await env.DB.prepare(`
       INSERT INTO evaluations (student_id, teacher_id, course_id, semester_id, question_id, rating_score, text_answer)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      studentId.id,
+      studentIdRecord.id,
       teacherId,
       courseId,
       semesterId,
