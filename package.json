@@ -4,6 +4,7 @@
   "description": "基于 Cloudflare Workers 和 D1 的高中教育管理系统",
   "main": "src/index.ts",
   "scripts": {
+    "build": "npx tsc --noEmit",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "db:init": "wrangler d1 execute education-db --file=./schema.sql --local",
